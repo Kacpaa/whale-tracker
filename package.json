@@ -1,0 +1,21 @@
+{
+  "name": "solana-tracker",
+  "version": "1.0.0",
+  "description": "Monitorowanie dużych transakcji i portfeli w ekosystemie Solana.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.91.0",
+    "dotenv": "^16.4.5"
+  },
+  "keywords": [
+    "solana",
+    "web3",
+    "blockchain",
+    "typescript"
+  ],
+  "author": "",
+  "license": "ISC"
+}
