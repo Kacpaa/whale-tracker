@@ -17,7 +17,7 @@
   2. zatrzymanie: korpus |close-open|/open ≤ 0,5%,
   3. silny ruch: korpus > 1%.
   Na końcu podaje, jak często te kryteria spełnia zwykły dzień w tym samym okresie.
-- `backtest_daty.py`: backtest strategii „w podanym dniu cena reaguje”: kontra na otwarciu D (A), kontra na zamknięciu D (B), wejście po zmianie koloru świecy (C), wyjście po 1, 3 lub 5 dniach. Każdy wariant porównuje z losowymi dniami. `--lata 2012-2024` sprawdza te same dni kalendarzowe w poprzednich latach.
+- `backtest_daty.py`: backtest strategii „w podanym dniu cena reaguje”: kontra na otwarciu D (A), kontra na zamknięciu D (B), wejście po zmianie koloru świecy (C), wyjście po 1, 3 lub 5 dniach. Każdy wariant porównuje z losowymi dniami. `--lata 2012-2024` sprawdza te same dni kalendarzowe w poprzednich latach; ma sens tylko wtedy, gdy użytkownik potwierdzi, że jego daty są stałe w kalendarzu.
 - `fetch_binance_d1.py`: pobiera D1 BTCUSDT z Binance do `btc/BTCUSDT_1d.csv`. Wymaga dostępu do `api.binance.com`, który w środowisku chmurowym jest zablokowany. Można też podać odpowiedź API zapisaną w przeglądarce: `--from-json`.
 
 ```
