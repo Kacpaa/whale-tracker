@@ -2,26 +2,26 @@
 """Ocena reakcji ceny BTC (D1) w zadanych dniach.
 
 Kryteria:
- 1. Zmiana kierunku (lokalny dołek / szczyt): ekstremum w oknie D-2..D+2,
-    przed nim >=2 świece w jednym kierunku, po nim >=2 świece w przeciwnym
-    (świeca dnia D może być ostatnią z pierwszej pary albo pierwszą z drugiej).
+ 1. Zmiana kierunku (lokalny dołek / szczyt): knot (low/high) lub zamknięcie dnia D
+    jest ekstremum względem 2 świec przed i 2 świec po. Osobno oznaczany jest
+    zwrot przesunięty o 1 dzień (D-1 lub D+1).
  2. Zatrzymanie: |close - open| / open <= 0,5%.
  3. Silny ruch: |close - open| / open > 1%.
 
-Dane: btc/BTCUSDT_1d.csv (Binance, świece UTC; aktualizacja: fetch_binance_d1.py)
-albo inny CSV z kolumnami date/time, open, high, low, close.
+Dane: domyślnie btc/data/bitstamp_btcusd_1d_utc.csv (D1 UTC zbudowane z 1h Bitstamp
+przez build_daily.py), albo inny CSV z kolumnami date/time, open, high, low, close.
 
 Użycie:
   python3 btc/btc_reakcje.py                        # domyślna lista dat
   python3 btc/btc_reakcje.py 21/11/25 06/12/25 ...  # własne daty (DD/MM/RR)
-  python3 btc/btc_reakcje.py --csv inne.csv
+  python3 btc/btc_reakcje.py --csv btc/data/bitstamp_btcusd_1d_utc2.csv   # doba UTC+2
 """
 import argparse
 import csv
 import os
 from datetime import date, datetime, timezone
 
-CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "BTCUSDT_1d.csv")
+CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "bitstamp_btcusd_1d_utc.csv")
 DATES = ["21/11/25", "06/12/25", "05/01/26", "04/02/26", "20/02/26", "06/04/26",
          "22/05/26", "05/06/26", "05/07/26", "19/08/26", "04/09/26", "06/10/26",
          "21/11/26", "06/12/26"]
@@ -47,42 +47,54 @@ def load_csv(path):
     return candles
 
 
-def color(c):
-    o, _, _, cl = c
-    return "G" if cl > o else "R" if cl < o else "-"
-
-
-def analyse(candles, day):
-    days = sorted(candles)
-    if day not in candles:
+def pivot(candles, days, i):
+    """Dołek/szczyt w dniu i: knot lub zamknięcie jest ekstremum względem 2 świec przed i 2 po."""
+    if i < 2 or i + 2 >= len(days):
         return None
-    i = days.index(day)
-    o, h, l, c = candles[day]
+    win = [candles[days[j]] for j in range(i - 2, i + 3)]
+    o, h, l, c = candles[days[i]]
+    found = []
+    for kind, idx, pick, name in (("dołek", 2, min, "knot"), ("dołek", 3, min, "zamknięcie"),
+                                  ("szczyt", 1, max, "knot"), ("szczyt", 3, max, "zamknięcie")):
+        if candles[days[i]][idx] == pick(x[idx] for x in win):
+            found.append((kind, name))
+    kinds = {}
+    for kind, name in found:
+        kinds.setdefault(kind, []).append(name)
+    return "; ".join(f"{k} ({'+'.join(v)})" for k, v in kinds.items()) or ""
+
+
+def analyse(candles, days, i):
+    o, h, l, c = candles[days[i]]
     body = (c - o) / o * 100
 
-    # Kryterium 1 wymaga 2 świec po dniu D.
-    if i < 2 or i + 2 >= len(days):
+    here = pivot(candles, days, i)
+    if here is None:
         reversal = "brak pełnych danych (potrzebne 2 świece przed i po)"
+    elif here:
+        reversal = "TAK – " + here
     else:
-        win = [candles[days[j]] for j in range(i - 2, i + 3)]
-        col = [color(x) for x in win]  # indeksy 0..4, D = 2
-        before_down = col[0:2] == ["R", "R"] or col[1:3] == ["R", "R"]
-        after_up = col[3:5] == ["G", "G"] or col[2:4] == ["G", "G"]
-        before_up = col[0:2] == ["G", "G"] or col[1:3] == ["G", "G"]
-        after_down = col[3:5] == ["R", "R"] or col[2:4] == ["R", "R"]
-        is_low = l <= min(x[2] for x in win)
-        is_high = h >= max(x[1] for x in win)
-        if is_low and before_down and after_up:
-            reversal = "TAK – lokalny dołek"
-        elif is_high and before_up and after_down:
-            reversal = "TAK – lokalny szczyt"
-        else:
-            reversal = "NIE"
-        reversal += f" (świece D-2..D+2: {' '.join(col)})"
+        near = [(days[j], pivot(candles, days, j)) for j in (i - 1, i + 1)]
+        near = [f"{d:%d/%m} {p}" for d, p in near if p]
+        reversal = ("±1 dzień – " + ", ".join(near)) if near else "NIE"
 
     stop = "TAK" if abs(body) <= 0.5 else "NIE"
     strong = ("TAK – " + ("wzrostowa" if body > 0 else "spadkowa")) if abs(body) > 1 else "NIE"
     return o, h, l, c, body, reversal, stop, strong
+
+
+def base_rates(candles, days, first, last):
+    """Jak często dowolny dzień w zakresie spełnia kryteria – punkt odniesienia."""
+    idx = [i for i, d in enumerate(days) if first <= d <= last and 2 <= i < len(days) - 2]
+    n = len(idx)
+    res = [analyse(candles, days, i) for i in idx]
+    rev = sum(r[5].startswith("TAK") for r in res)
+    near = sum(r[5].startswith("TAK") or r[5].startswith("±1") for r in res)
+    stop = sum(r[6] == "TAK" for r in res)
+    strong = sum(r[7] != "NIE" for r in res)
+    return (f"Punkt odniesienia ({days[idx[0]]} .. {days[idx[-1]]}, {n} dni): "
+            f"zwrot w dniu {rev / n:.0%}, zwrot ±1 dzień {near / n:.0%}, "
+            f"zatrzymanie {stop / n:.0%}, silny ruch {strong / n:.0%}")
 
 
 def main():
@@ -91,21 +103,25 @@ def main():
     ap.add_argument("--csv", default=CSV_PATH)
     args = ap.parse_args()
     candles = load_csv(args.csv)
-    last = max(candles)
+    days = sorted(candles)
+    pos = {d: i for i, d in enumerate(days)}
+    wanted = [datetime.strptime(s, "%d/%m/%y").date() for s in args.dates]
 
     print("| Data | Open | High | Low | Close | Korpus % | 1. Zmiana kierunku | 2. Zatrzymanie ≤0,5% | 3. Silny ruch >1% |")
     print("|---|---|---|---|---|---|---|---|---|")
-    for s in args.dates:
-        day = datetime.strptime(s, "%d/%m/%y").date()
-        if day > last:
+    for s, day in zip(args.dates, wanted):
+        if day > days[-1]:
             print(f"| {s} | – | – | – | – | – | data w przyszłości / brak świecy | – | – |")
             continue
-        r = analyse(candles, day)
-        if r is None:
+        if day not in pos:
             print(f"| {s} | – | – | – | – | – | brak świecy w danych | – | – |")
             continue
-        o, h, l, c, body, rev, stop, strong = r
+        o, h, l, c, body, rev, stop, strong = analyse(candles, days, pos[day])
         print(f"| {s} | {o:,.0f} | {h:,.0f} | {l:,.0f} | {c:,.0f} | {body:+.2f}% | {rev} | {stop} | {strong} |")
+    known = [d for d in wanted if d in pos]
+    if known:
+        print()
+        print(base_rates(candles, days, min(known), max(known)))
 
 
 if __name__ == "__main__":
