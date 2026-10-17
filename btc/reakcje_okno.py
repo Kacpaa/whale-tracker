@@ -10,9 +10,11 @@ Dla każdego z dni D-1, D, D+1 sprawdza:
  3.  Silny ruch: |close-open|/open > 1%.
 
   python3 btc/reakcje_okno.py btc/daty/serie_2026-10-17.csv --csv btc/data/bitstamp_btcusd_1d_utc2.csv
+  ... --porownanie 10000   # dodatkowo: porównanie z losowymi dniami z okresu każdej serii
 """
 import argparse
 import csv
+import random
 from collections import defaultdict
 from datetime import datetime, timedelta
 
@@ -66,6 +68,55 @@ def check(candles, days, pos, day):
     return hits, complete
 
 
+CRITERIA = ("1a", "1b", "2", "3")
+
+
+def day_flags(candles, days, i):
+    """Które kryteria spełnia sam dzień i; None, gdy brak danych do kryterium 1."""
+    turn, piv = color_turn(candles, days, i), pivot(candles, days, i)
+    if turn is None or piv is None:
+        return None
+    o, h, l, c = candles[days[i]]
+    body = abs(c - o) / o * 100
+    return {"1a": bool(turn), "1b": bool(piv), "2": body <= 0.5, "3": body > 1}
+
+
+def score(flags, idx):
+    """Liczba dat z reakcją w D i w D±1 dla każdego kryterium i dla któregokolwiek."""
+    out = {}
+    for k in CRITERIA + ("any",):
+        hit = (lambda j: any(flags[j].values())) if k == "any" else (lambda j, k=k: flags[j][k])
+        out[k + "_D"] = sum(hit(i) for i in idx)
+        out[k + "_W"] = sum(hit(i - 1) or hit(i) or hit(i + 1) for i in idx)
+    return out
+
+
+def compare(candles, days, pos, series, trials):
+    flags = {i: day_flags(candles, days, i) for i in range(len(days))}
+    ok = lambda i: all(flags.get(j) for j in (i - 1, i, i + 1))
+    rng = random.Random(42)
+    keys = [k + s for k in CRITERIA + ("any",) for s in ("_D", "_W")]
+    print(f"## Porównanie z losowymi dniami ({trials} losowań na serię)\n")
+    print("W komórce: twoje daty / średnio losowe dni / odsetek losowań z wynikiem >= twój. "
+          "Pierwsza para to dzień D, druga D lub D±1.\n")
+    print("| Seria | n | Okres | 1a. Kolory | 1b. Ekstremum | 2. Zatrzymanie | 3. Silny ruch | Którekolwiek |")
+    print("|---|---|---|---|---|---|---|---|")
+    for name, dates in series.items():
+        idx = [pos[d] for d in dates if d in pos and ok(pos[d])]
+        pool = [i for i in range(idx[0], idx[-1] + 1) if ok(i)]
+        obs = score(flags, idx)
+        sims = [score(flags, rng.sample(pool, len(idx))) for _ in range(trials)]
+        cells = []
+        for k in CRITERIA + ("any",):
+            parts = []
+            for s in ("_D", "_W"):
+                vals = [x[k + s] for x in sims]
+                p = sum(v >= obs[k + s] for v in vals) / trials
+                parts.append(f"{obs[k + s]} / {sum(vals) / trials:.1f} / {p:.0%}")
+            cells.append("<br>".join(parts))
+        print(f"| {name} | {len(idx)} | {days[idx[0]]:%m/%y}–{days[idx[-1]]:%m/%y} | " + " | ".join(cells) + " |")
+
+
 def cell(items):
     return ", ".join(f"{LABEL[o]} {t}" for o, t in items) or "—"
 
@@ -74,6 +125,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("serie")
     ap.add_argument("--csv", default=CSV_PATH)
+    ap.add_argument("--porownanie", type=int, default=0, help="liczba losowań do porównania z losowymi dniami")
     args = ap.parse_args()
 
     candles = load_csv(args.csv)
@@ -116,6 +168,10 @@ def main():
     for name, n, c in summary:
         f = lambda k: f"{c[k + '_D']} / {c[k + '_W']}"
         print(f"| {name} | {n} | {f('1a')} | {f('1b')} | {f('2')} | {f('3')} | {f('any')} |")
+
+    if args.porownanie:
+        print()
+        compare(candles, days, pos, series, args.porownanie)
 
 
 if __name__ == "__main__":
