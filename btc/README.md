@@ -6,5 +6,6 @@
 
 ```
 python3 btc/fetch_binance_d1.py
+python3 btc/fetch_binance_d1.py --from-json klines.json   # odpowiedź API zapisana z przeglądarki
 python3 btc/btc_reakcje.py 21/11/25 06/12/25
 ```
